@@ -30,8 +30,10 @@ class CardCameraContainer(BoxLayout):
         super(CardCameraContainer, self).__init__(**kwargs)
         self.focus = 100
         self.focus_change = -5
-        self.brightness_change = 0
-        self.contrast_multiplier = 1
+        self.brightness = 1
+        self.contrast = 1
+        self.gamma = 1
+        self.should_invert = False
         self.should_run_brightness_filter = True
         self.should_run_gaussian_blur_filter = True
         self.should_run_contrast_filter = True
@@ -51,15 +53,21 @@ class CardCameraContainer(BoxLayout):
         self.contrast_plus_btn = Button(text="contrast\n+", size_hint=(.7, .1), pos_hint={'x': 1.05})
         self.focus_minus_btn = Button(text="focus\n-", size_hint=(.7, .1), pos_hint={'x': .30})
         self.focus_plus_btn = Button(text="focus\n+", size_hint=(.7, .1), pos_hint={'x': .45})
+        self.gamma_minus_btn = Button(text="gamma\n-", size_hint=(.7, .1), pos_hint={'x': .30, 'y': .85})
+        self.gamma_plus_btn = Button(text="gamma\n+", size_hint=(.7, .1), pos_hint={'x': .45, 'y': .85})
+        self.invert_btn = Button(text="invert", size_hint=(.7, .1), pos_hint={'x': .60, 'y': .85})
 
         self.btn1.bind(on_press=lambda x: self.find_card())
 
         self.brightness_minus_btn.bind(on_press=lambda x: self.set_brightness(-5))
         self.brightness_plus_btn.bind(on_press=lambda x: self.set_brightness(5))
-        self.contrast_minus_btn.bind(on_press=lambda x: self.set_contrast(-1))
-        self.contrast_plus_btn.bind(on_press=lambda x: self.set_contrast(1))
+        self.contrast_minus_btn.bind(on_press=lambda x: self.set_contrast(-.3))
+        self.contrast_plus_btn.bind(on_press=lambda x: self.set_contrast(.3))
         self.focus_minus_btn.bind(on_press=lambda x: self.set_focus(-5))
         self.focus_plus_btn.bind(on_press=lambda x: self.set_focus(5))
+        self.gamma_minus_btn.bind(on_press=lambda x: self.set_gamma(-1))
+        self.gamma_plus_btn.bind(on_press=lambda x: self.set_gamma(1))
+        self.invert_btn.bind(on_press=lambda x: self.toggle_invert())
 
         self.add_widget(self.img1)
         self.add_widget(self.btn1)
@@ -69,7 +77,10 @@ class CardCameraContainer(BoxLayout):
         self.add_widget(self.brightness_plus_btn)
         self.add_widget(self.contrast_minus_btn)
         self.add_widget(self.contrast_plus_btn)
+        self.add_widget(self.gamma_minus_btn)
+        self.add_widget(self.gamma_plus_btn)
         self.add_widget(self.text_block)
+        self.add_widget(self.invert_btn)
 
         Clock.schedule_interval(self.update, 1.0 / 30.0)
 
@@ -86,7 +97,7 @@ class CardCameraContainer(BoxLayout):
 
     def set_focus(self, increment):
         self.focus = self.focus + increment
-        self.camera.set(cv2.CAP_PROP_FOCUS, self.focus)
+        self.camera.set(cv2.CAP_PROP_GAMMA, self.focus)
 
     def find_card(self):
         _, frame = self.camera.read()
@@ -97,30 +108,56 @@ class CardCameraContainer(BoxLayout):
         self.text_block.text = text
 
     def process_frame(self, frame):
-        # filtered = cv2.dilate(frame, kernel, iterations=15)
+        # frame = cv2.dilate(frame, self.get_kernel(5), iterations=5)
 
-        frame = self.apply_contrast_and_brightness(frame)
-        gray_grayscale = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        # gray_in_rgb = cv2.cvtColor(gray_grayscale, cv2.COLOR_GRAY2RGB)
-        # gray_in_bgr = cv2.cvtColor(gray_grayscale, cv2.COLOR_GRAY2BGR)
-        if self.should_run_gaussian_blur_filter:
-            frame = cv2.GaussianBlur(gray_grayscale, (7, 7), 0)
-        if self.should_run_otsu_thresh_filter:
-            _, capped_gray = cv2.threshold(blurred_grayscale, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # frame = self.apply_contrast_and_brightness(frame)
+        frame = self.turn_gray_bgr(frame)
+        frame = self.adjust_gamma(frame)
+        if self.should_invert:
+            frame = self.invert(frame)
 
-        last_process = capped_gray
-        if frame.shape[0]
-
-        return cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+        return frame
+        # if self.should_run_gaussian_blur_filter:
+        #     frame = cv2.GaussianBlur(frame, (5, 5), 0)
+        # if self.should_run_otsu_thresh_filter:
+        #     _, frame = cv2.threshold(frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        #
+        # return cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
 
     def set_brightness(self, change):
-        self.brightness_change += change
+        self.brightness += change
 
     def set_contrast(self, change):
-        self.contrast_multiplier += change
+        self.contrast += change
 
     def apply_contrast_and_brightness(self, frame):
         return cv2.addWeighted(frame, self.contrast_multiplier, frame, 0, self.brightness_change)
+
+    def get_kernel(self, size):
+        return np.ones((size, size), np.uint8)
+
+    def turn_gray_bgr(self, frame):
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+
+    def set_gamma(self, arg):
+        values = [.04, .1, .2, .4, .67, 1, 1.5, 2.5, 5.0, 10.0, 25.0]
+        index = values.index(self.gamma)
+        if arg == -1 and index is not 0:
+            self.gamma = values[index - 1]
+        elif arg == 1 and index is not len(values) - 1:
+            self.gamma = values[index + 1]
+
+    def adjust_gamma(self, frame):
+        lookUpTable = np.empty((1, 256), np.uint8)
+        for i in range(256):
+            lookUpTable[0, i] = np.clip(pow(i / 255.0, self.gamma) * 255.0, 0, 255)
+        return cv2.LUT(frame, lookUpTable)
+
+    def invert(self, frame):
+        return cv2.bitwise_not(frame)
+    def toggle_invert(self):
+        self.should_invert = not self.should_invert
 
 
 if __name__ == "__main__":
