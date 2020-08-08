@@ -1,6 +1,7 @@
 from kivy.app import App
 from kivy.uix.image import Image
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.floatlayout import FloatLayout
 from kivy.clock import Clock
 from kivy.graphics.texture import Texture
 from kivy.uix.button import Button, ButtonBehavior
@@ -25,7 +26,7 @@ class CardCameraApp(App):
         return CardCameraContainer()
 
 
-class CardCameraContainer(BoxLayout):
+class CardCameraContainer(FloatLayout):
     def __init__(self, **kwargs):
         super(CardCameraContainer, self).__init__(**kwargs)
         self.focus = 100
@@ -34,6 +35,8 @@ class CardCameraContainer(BoxLayout):
         self.contrast = 1
         self.gamma = 1
         self.should_invert = False
+        self.should_gray = True
+        self.should_apply_gamma = True
         self.should_run_brightness_filter = True
         self.should_run_gaussian_blur_filter = True
         self.should_run_contrast_filter = True
@@ -43,19 +46,23 @@ class CardCameraContainer(BoxLayout):
         self.camera.set(CAP_PROP_FRAME_WIDTH, 1920)
         self.camera.set(CAP_PROP_FRAME_HEIGHT, 1080)
 
-        self.text_block = TextInput(size_hint=(1, 1), pos_hint={'x': .15, 'y': 0.0})
-        self.img1 = Image(size_hint=(3, 1), pos_hint={'x': 0.0, 'y': 0.15})
-        self.btn1 = Button(text="Take", size_hint=(.7, .1), pos_hint={'x': .15})
+        self.cam_layout = BoxLayout(size_hint=(.5, .5), pos_hint={'top': 1.0, 'left': 0.0})
+        self.img1 = Image(size_hint=(1, 1))
+        self.cam_layout.add_widget(self.img1)
 
-        self.brightness_minus_btn = Button(text="brightness\n-", size_hint=(.7, .1), pos_hint={'x': .60})
-        self.brightness_plus_btn = Button(text="brightness\n+", size_hint=(.7, .1), pos_hint={'x': .75})
-        self.contrast_minus_btn = Button(text="contrast\n-", size_hint=(.7, .1), pos_hint={'x': .90})
-        self.contrast_plus_btn = Button(text="contrast\n+", size_hint=(.7, .1), pos_hint={'x': 1.05})
-        self.focus_minus_btn = Button(text="focus\n-", size_hint=(.7, .1), pos_hint={'x': .30})
-        self.focus_plus_btn = Button(text="focus\n+", size_hint=(.7, .1), pos_hint={'x': .45})
-        self.gamma_minus_btn = Button(text="gamma\n-", size_hint=(.7, .1), pos_hint={'x': .30, 'y': .85})
-        self.gamma_plus_btn = Button(text="gamma\n+", size_hint=(.7, .1), pos_hint={'x': .45, 'y': .85})
-        self.invert_btn = Button(text="invert", size_hint=(.7, .1), pos_hint={'x': .60, 'y': .85})
+        self.controls_layout = BoxLayout(size_hint=(1, .5), pos_hint={'top': 0.5, 'left': 0.0})
+
+        self.text_block = TextInput(size_hint=(.5, 1))
+        self.btn1 = Button(text="Take", size_hint=(.7, .1), )
+        self.brightness_minus_btn = Button(text="brightness\n-", size_hint=(.7, .1))
+        self.brightness_plus_btn = Button(text="brightness\n+", size_hint=(.7, .1))
+        self.contrast_minus_btn = Button(text="contrast\n-", size_hint=(.7, .1))
+        self.contrast_plus_btn = Button(text="contrast\n+", size_hint=(.7, .1))
+        self.focus_minus_btn = Button(text="focus\n-", size_hint=(.7, .1))
+        self.focus_plus_btn = Button(text="focus\n+", size_hint=(.7, .1))
+        self.gamma_minus_btn = Button(text="gamma\n-", size_hint=(.7, .1))
+        self.gamma_plus_btn = Button(text="gamma\n+", size_hint=(.7, .1))
+        self.invert_btn = Button(text="invert", size_hint=(.7, .1))
 
         self.btn1.bind(on_press=lambda x: self.find_card())
 
@@ -69,18 +76,20 @@ class CardCameraContainer(BoxLayout):
         self.gamma_plus_btn.bind(on_press=lambda x: self.set_gamma(1))
         self.invert_btn.bind(on_press=lambda x: self.toggle_invert())
 
-        self.add_widget(self.img1)
-        self.add_widget(self.btn1)
-        self.add_widget(self.focus_minus_btn)
-        self.add_widget(self.focus_plus_btn)
-        self.add_widget(self.brightness_minus_btn)
-        self.add_widget(self.brightness_plus_btn)
-        self.add_widget(self.contrast_minus_btn)
-        self.add_widget(self.contrast_plus_btn)
-        self.add_widget(self.gamma_minus_btn)
-        self.add_widget(self.gamma_plus_btn)
-        self.add_widget(self.text_block)
-        self.add_widget(self.invert_btn)
+        self.controls_layout.add_widget(self.btn1)
+        self.controls_layout.add_widget(self.focus_minus_btn)
+        self.controls_layout.add_widget(self.focus_plus_btn)
+        self.controls_layout.add_widget(self.brightness_minus_btn)
+        self.controls_layout.add_widget(self.brightness_plus_btn)
+        self.controls_layout.add_widget(self.contrast_minus_btn)
+        self.controls_layout.add_widget(self.contrast_plus_btn)
+        self.controls_layout.add_widget(self.gamma_minus_btn)
+        self.controls_layout.add_widget(self.gamma_plus_btn)
+        self.controls_layout.add_widget(self.invert_btn)
+        self.controls_layout.add_widget(self.text_block)
+
+        self.add_widget(self.cam_layout)
+        self.add_widget(self.controls_layout)
 
         Clock.schedule_interval(self.update, 1.0 / 30.0)
 
@@ -99,9 +108,11 @@ class CardCameraContainer(BoxLayout):
         self.focus = self.focus + increment
         self.camera.set(cv2.CAP_PROP_GAMMA, self.focus)
 
-    def find_card(self):
-        _, frame = self.camera.read()
-
+    def find_card(self, frame_in):
+        if not frame_in:
+            _, frame = self.camera.read()
+        else:
+            frame = frame_in
         processed_frame = self.process_frame(frame)
 
         text = pytesseract.image_to_string(processed_frame)
@@ -111,8 +122,10 @@ class CardCameraContainer(BoxLayout):
         # frame = cv2.dilate(frame, self.get_kernel(5), iterations=5)
 
         # frame = self.apply_contrast_and_brightness(frame)
-        frame = self.turn_gray_bgr(frame)
-        frame = self.adjust_gamma(frame)
+        if self.should_gray:
+            frame = self.turn_gray_bgr(frame)
+        if self.should_apply_gamma:
+            frame = self.adjust_gamma(frame)
         if self.should_invert:
             frame = self.invert(frame)
 
